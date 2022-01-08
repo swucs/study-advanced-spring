@@ -1,34 +1,38 @@
-package spring.advanced.trace.hellotrace;
-
+package spring.advanced.trace.logtrace;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import spring.advanced.trace.TraceId;
 import spring.advanced.trace.TraceStatus;
 
 @Slf4j
-@Component
-public class HelloTraceV1 {
+public class FieldLogTrace implements LogTrace {
 
     private static final String START_PREFIX = "-->";
     private static final String COMPLETE_PREFIX = "<--";
     private static final String EX_PREFIX = "<X-";
 
+    private TraceId traceHolder;    //동시성 이슈 발생
+
+    @Override
     public TraceStatus begin(String message) {
-        TraceId traceId = new TraceId();
+        syncTraceId();
+        TraceId traceId = traceHolder;
         long startTimeMs = System.currentTimeMillis();
-        //로그 출력
         log.info("[{}] {}{}", traceId.getId(), addSpace(START_PREFIX, traceId.getLevel()), message);
         return new TraceStatus(traceId, startTimeMs, message);
     }
 
+
+    @Override
     public void end(TraceStatus status) {
         complete(status, null);
     }
 
+    @Override
     public void exception(TraceStatus status, Exception e) {
         complete(status, e);
     }
+
 
     private void complete(TraceStatus status, Exception e) {
         Long stopTimeMs = System.currentTimeMillis();
@@ -39,6 +43,16 @@ public class HelloTraceV1 {
             log.info("[{}] {}{} time={}ms", traceId.getId(), addSpace(COMPLETE_PREFIX, traceId.getLevel()), status.getMessage(), resultTimeMs);
         } else {
             log.info("[{}] {}{} time={}ms ex={}", traceId.getId(), addSpace(EX_PREFIX, traceId.getLevel()), status.getMessage(), resultTimeMs, e.toString());
+        }
+
+        releaseTraceId();
+    }
+
+    private void releaseTraceId() {
+        if (traceHolder.isFirstLevel()) {
+            traceHolder = null;     //destroy
+        } else {
+            traceHolder = traceHolder.createPreviousId();
         }
     }
 
@@ -51,4 +65,11 @@ public class HelloTraceV1 {
     }
 
 
+    private void syncTraceId() {
+        if (traceHolder == null) {
+            traceHolder = new TraceId();
+        } else {
+            traceHolder = traceHolder.createNextId();
+        }
+    }
 }
